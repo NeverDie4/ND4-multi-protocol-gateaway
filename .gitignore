@@ -21,7 +21,7 @@ output/
 # Dependency directories (remove the comment below to include it)
 # vendor/
 /bin/*
-*.json
+/config.json
 /build
 /data/
 /tmp/
@@ -29,6 +29,13 @@ output/
 /lang/
 /daemon/
 /public/dist/*
-/!public/dist/README.md
+!/public/dist/README.md
 
 .VSCodeCounter
+
+# frontend
+/node_modules/
+/web/node_modules/
+
+# example
+web-example/
