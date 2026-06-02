@@ -29,9 +29,33 @@ output/
 /lang/
 /daemon/
 /public/dist/*
-!/public/dist/README.md
 
 .VSCodeCounter
+
+# AI IDE rules / skills / work directories
+.opencode/
+opencode.json
+.cursor/
+.windsurf/
+.claude/
+.clinerules/
+.clineignore
+.cline/
+.codebuddy/
+.trae/
+.qwen/
+.comate/
+.gemini/
+.lovir/
+.augment/
+.continue/
+.mentat/
+.roo/
+.codex/
+.aider*
+CLAUDE.md
+AGENTS.md
+.vscode/
 
 # frontend
 /node_modules/
