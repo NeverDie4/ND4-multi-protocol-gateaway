@@ -60,6 +60,10 @@ AGENTS.md
 # frontend
 /node_modules/
 /web/node_modules/
+/mount-hub/node_modules/
+/mount-hub/.next/
+/mount-hub/.pnpm-store/
+/mount-hub/next-dev*.log
 
 # example
 web-example/
