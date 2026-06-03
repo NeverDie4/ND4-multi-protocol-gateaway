@@ -10,13 +10,14 @@ go mod download
 go mod tidy
 
 echo "==> Installing frontend dependencies..."
-cd "$PROJECT_ROOT/web"
+cd "$PROJECT_ROOT/mount-hub"
 pnpm install
 
 echo "==> Checking config.json..."
 cd "$PROJECT_ROOT"
-if [ ! -f config.json ]; then
-  cat > config.json <<'EOF'
+mkdir -p data
+if [ ! -f data/config.json ]; then
+  cat > data/config.json <<'EOF'
 {
   "force": false,
   "site_url": "",
@@ -42,7 +43,8 @@ if [ ! -f config.json ]; then
     "force_https": false,
     "cert_file": "",
     "key_file": "",
-    "unix_socket": ""
+    "unix_file": "",
+    "unix_file_perm": ""
   },
   "temp_dir": "data/temp",
   "bleve_dir": "data/bleve",
@@ -57,15 +59,18 @@ if [ ! -f config.json ]; then
   },
   "delayed_start": 0,
   "max_connections": 0,
+  "max_concurrency": 64,
   "tls_insecure_skip_verify": false
 }
 EOF
-  echo "==> Generated config.json (SQLite3 as default database)."
-  echo "    Edit config.json to switch to MySQL/PostgreSQL."
+  echo "==> Generated data/config.json (SQLite3 as default database)."
+  echo "    Edit data/config.json to switch to MySQL/PostgreSQL."
 else
-  echo "==> config.json already exists, skipping."
+  echo "==> data/config.json already exists, skipping."
 fi
 
 echo ""
 echo "==> Setup complete!"
-echo "    Run './scripts/linux/dev.sh' to start development."
+echo "    Run './scripts/linux/dev-backend.sh' to start backend."
+echo "    Run './scripts/linux/dev-frontend.sh' to start frontend."
+echo "    Run './scripts/linux/dev.sh' to start both."

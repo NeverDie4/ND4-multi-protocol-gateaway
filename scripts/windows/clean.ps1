@@ -1,13 +1,24 @@
-#Requires -Version 7.0
-Set-StrictMode -Version Latest
+#Requires -Version 5.1
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path "$ScriptDir\..\.."
+$ScriptDir = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
-Write-Host "==> Cleaning build artifacts..."
+Write-Host "==> Cleaning build artifacts and runtime data..."
 
-$Dirs = @("bin", "public\dist", "tmp", "data", "build", "log", "daemon", "output")
+$Dirs = @(
+  "bin",
+  "mount-hub\.next",
+  "mount-hub\node_modules",
+  "tmp",
+  "build",
+  "log",
+  "daemon",
+  "output",
+  "public\dist",
+  "data"
+)
 foreach ($dir in $Dirs) {
   $path = Join-Path $ProjectRoot $dir
   if (Test-Path $path) {

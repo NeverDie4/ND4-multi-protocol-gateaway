@@ -1,9 +1,9 @@
-#Requires -Version 7.0
-Set-StrictMode -Version Latest
+#Requires -Version 5.1
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path "$ScriptDir\..\.."
+$ScriptDir = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
 Write-Host "==> Running Go tests..."
 Push-Location $ProjectRoot

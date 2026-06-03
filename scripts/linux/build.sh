@@ -13,7 +13,7 @@ BUILT_AT="$(date +'%F %T %z')"
 GIT_COMMIT="$(git log --pretty=format:"%h" -1 2>/dev/null || echo "unknown")"
 
 echo "==> Building frontend..."
-cd "$PROJECT_ROOT/web"
+cd "$PROJECT_ROOT/mount-hub"
 pnpm run build
 
 echo "==> Building backend..."

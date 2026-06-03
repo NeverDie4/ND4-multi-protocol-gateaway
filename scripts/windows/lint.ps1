@@ -1,9 +1,9 @@
-#Requires -Version 7.0
-Set-StrictMode -Version Latest
+#Requires -Version 5.1
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path "$ScriptDir\..\.."
+$ScriptDir = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
 Write-Host "==> Linting Go code..."
 Push-Location $ProjectRoot
@@ -12,7 +12,7 @@ Pop-Location
 
 Write-Host ""
 Write-Host "==> Linting frontend code..."
-Push-Location "$ProjectRoot\web"
+Push-Location "$ProjectRoot\mount-hub"
 pnpm run lint
 Pop-Location
 

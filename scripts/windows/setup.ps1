@@ -1,9 +1,9 @@
-#Requires -Version 7.0
-Set-StrictMode -Version Latest
+#Requires -Version 5.1
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path "$ScriptDir\..\.."
+$ScriptDir = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
 Write-Host "==> Installing Go dependencies..."
 Push-Location $ProjectRoot
@@ -12,13 +12,14 @@ go mod tidy
 Pop-Location
 
 Write-Host "==> Installing frontend dependencies..."
-Push-Location "$ProjectRoot\web"
+Push-Location "$ProjectRoot\mount-hub"
 pnpm install
 Pop-Location
 
 Write-Host "==> Checking config.json..."
 Push-Location $ProjectRoot
-if (-not (Test-Path "config.json")) {
+New-Item -ItemType Directory -Force -Path "data" | Out-Null
+if (-not (Test-Path "data\config.json")) {
   @"
 {
   "force": false,
@@ -45,7 +46,8 @@ if (-not (Test-Path "config.json")) {
     "force_https": false,
     "cert_file": "",
     "key_file": "",
-    "unix_socket": ""
+    "unix_file": "",
+    "unix_file_perm": ""
   },
   "temp_dir": "data/temp",
   "bleve_dir": "data/bleve",
@@ -60,16 +62,19 @@ if (-not (Test-Path "config.json")) {
   },
   "delayed_start": 0,
   "max_connections": 0,
+  "max_concurrency": 64,
   "tls_insecure_skip_verify": false
 }
-"@ | Set-Content -Path "config.json"
-  Write-Host "==> Generated config.json (SQLite3 as default database)."
-  Write-Host "    Edit config.json to switch to MySQL/PostgreSQL."
+"@ | Set-Content -Path "data\config.json"
+  Write-Host "==> Generated data\config.json (SQLite3 as default database)."
+  Write-Host "    Edit data\config.json to switch to MySQL/PostgreSQL."
 } else {
-  Write-Host "==> config.json already exists, skipping."
+  Write-Host "==> data\config.json already exists, skipping."
 }
 Pop-Location
 
 Write-Host ""
 Write-Host "==> Setup complete!"
-Write-Host "    Run '.\scripts\windows\dev.ps1' to start development."
+Write-Host "    Run '.\scripts\windows\dev-backend.ps1' to start backend."
+Write-Host "    Run '.\scripts\windows\dev-frontend.ps1' to start frontend."
+Write-Host "    Run '.\scripts\windows\dev.ps1' to start both."

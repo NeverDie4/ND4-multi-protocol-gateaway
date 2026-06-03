@@ -10,7 +10,7 @@ go vet ./...
 
 echo ""
 echo "==> Linting frontend code..."
-cd "$PROJECT_ROOT/web"
+cd "$PROJECT_ROOT/mount-hub"
 pnpm run lint
 
 echo ""

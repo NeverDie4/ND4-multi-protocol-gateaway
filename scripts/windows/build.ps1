@@ -1,9 +1,9 @@
-#Requires -Version 7.0
-Set-StrictMode -Version Latest
+#Requires -Version 5.1
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path "$ScriptDir\..\.."
+$ScriptDir = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
 $AppName = "alist.exe"
 $BinDir = Join-Path $ProjectRoot "bin"
@@ -13,7 +13,7 @@ $BuiltAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz"
 $GitCommit = try { git log --pretty=format:"%h" -1 2>$null } catch { "unknown" }
 
 Write-Host "==> Building frontend..."
-Push-Location "$ProjectRoot\web"
+Push-Location "$ProjectRoot\mount-hub"
 pnpm run build
 Pop-Location
 

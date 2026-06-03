@@ -1,9 +1,9 @@
-#Requires -Version 7.0
-Set-StrictMode -Version Latest
+#Requires -Version 5.1
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Resolve-Path "$ScriptDir\..\.."
+$ScriptDir = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
 $RunBackend = $false
 $RunFrontend = $false
@@ -27,30 +27,20 @@ if (-not $RunBackend -and -not $RunFrontend) {
 $Jobs = @()
 
 if ($RunBackend) {
-  $airPath = Get-Command air -ErrorAction SilentlyContinue
-  if ($airPath) {
-    Write-Host "==> Starting Go backend (air)..."
-    $Job = Start-Job -ScriptBlock {
-      param($Root)
-      Set-Location $Root
-      & air
-    } -ArgumentList $ProjectRoot
-  } else {
-    Write-Host "==> Starting Go backend (go run)..."
-    $Job = Start-Job -ScriptBlock {
-      param($Root)
-      Set-Location $Root
-      & go run . server
-    } -ArgumentList $ProjectRoot
-  }
+  Write-Host "==> Starting Go backend (go run --dev)..."
+  $Job = Start-Job -ScriptBlock {
+    param($Root)
+    Set-Location $Root
+    & go run . server --dev
+  } -ArgumentList $ProjectRoot
   $Jobs += $Job
 }
 
 if ($RunFrontend) {
-  Write-Host "==> Starting Vite dev server..."
+  Write-Host "==> Starting Next.js dev server..."
   $Job = Start-Job -ScriptBlock {
     param($Root)
-    Set-Location "$Root\web"
+    Set-Location "$Root\mount-hub"
     & pnpm run dev
   } -ArgumentList $ProjectRoot
   $Jobs += $Job

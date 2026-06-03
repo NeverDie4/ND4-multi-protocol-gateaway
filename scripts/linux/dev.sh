@@ -34,20 +34,14 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 if $run_backend; then
-  if command -v air &>/dev/null; then
-    echo "==> Starting Go backend (air)..."
-    air &
-    BACKEND_PID=$!
-  else
-    echo "==> Starting Go backend (go run)..."
-    go run . server &
-    BACKEND_PID=$!
-  fi
+  echo "==> Starting Go backend (go run --dev)..."
+  go run . server --dev &
+  BACKEND_PID=$!
 fi
 
 if $run_frontend; then
-  echo "==> Starting Vite dev server..."
-  cd "$PROJECT_ROOT/web"
+  echo "==> Starting Next.js dev server..."
+  cd "$PROJECT_ROOT/mount-hub"
   pnpm run dev &
   FRONTEND_PID=$!
 fi
