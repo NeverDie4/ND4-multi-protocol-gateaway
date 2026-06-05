@@ -27,7 +27,7 @@ export function AdminSidebar({ activeCategory, onCategoryChange }: AdminSidebarP
         <p className="text-xs text-muted-foreground">系统配置</p>
       </div>
       <nav className="flex-1 p-2 space-y-0.5">
-        {mockAdminCategories.map((category) => {
+        {mockAdminCategories.filter(c => c.id !== 'webdav' && c.id !== 'https').map((category) => {
           const Icon = iconMap[category.icon as keyof typeof iconMap]
           const isActive = activeCategory === category.id
           return (

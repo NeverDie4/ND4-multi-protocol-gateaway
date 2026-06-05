@@ -14,8 +14,8 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-echo "==> Starting Go backend (go run --dev)..."
-go run . server --dev &
+echo "==> Starting Go backend (go run --debug)..."
+go run . server --debug &
 BACKEND_PID=$!
 
 echo "Backend running at http://127.0.0.1:5244"
