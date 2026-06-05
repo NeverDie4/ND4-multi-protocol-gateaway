@@ -34,6 +34,58 @@ type SetTokenReq struct {
 	Token string `json:"token" form:"token" binding:"required"`
 }
 
+type ProtocolPortInfo struct {
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
+	Status   string `json:"status"`
+	Enabled  bool   `json:"enabled"`
+	Icon     string `json:"icon"`
+}
+
+func parseListenPort(listen string) int {
+	if listen == "" {
+		return -1
+	}
+	_, portStr, err := strings.Cut(listen, ":")
+	if !err {
+		portStr = listen
+	}
+	port, parseErr := strconv.Atoi(portStr)
+	if parseErr != nil {
+		return -1
+	}
+	return port
+}
+
+func protocolStatus(enabled bool) string {
+	if enabled {
+		return "running"
+	}
+	return "stopped"
+}
+
+func ProtocolPorts(c *gin.Context) {
+	httpEnabled := conf.Conf.Scheme.HttpPort != -1
+	httpsEnabled := conf.Conf.Scheme.HttpsPort != -1
+	webdavPort := conf.Conf.Scheme.HttpPort
+	if webdavPort == -1 {
+		webdavPort = conf.Conf.Scheme.HttpsPort
+	}
+	webdavEnabled := httpEnabled || httpsEnabled
+	ftpEnabled := conf.Conf.FTP.Enable && conf.Conf.FTP.Listen != ""
+	sftpEnabled := conf.Conf.SFTP.Enable && conf.Conf.SFTP.Listen != ""
+	s3Enabled := conf.Conf.S3.Enable && conf.Conf.S3.Port != -1
+
+	common.SuccessResp(c, []ProtocolPortInfo{
+		{Protocol: "HTTP", Port: conf.Conf.Scheme.HttpPort, Status: protocolStatus(httpEnabled), Enabled: httpEnabled, Icon: "globe2"},
+		{Protocol: "HTTPS", Port: conf.Conf.Scheme.HttpsPort, Status: protocolStatus(httpsEnabled), Enabled: httpsEnabled, Icon: "lock"},
+		{Protocol: "WebDAV", Port: webdavPort, Status: protocolStatus(webdavEnabled), Enabled: webdavEnabled, Icon: "folder"},
+		{Protocol: "FTP", Port: parseListenPort(conf.Conf.FTP.Listen), Status: protocolStatus(ftpEnabled), Enabled: ftpEnabled, Icon: "terminal"},
+		{Protocol: "SFTP", Port: parseListenPort(conf.Conf.SFTP.Listen), Status: protocolStatus(sftpEnabled), Enabled: sftpEnabled, Icon: "key"},
+		{Protocol: "S3 API", Port: conf.Conf.S3.Port, Status: protocolStatus(s3Enabled), Enabled: s3Enabled, Icon: "globe"},
+	})
+}
+
 func ResetToken(c *gin.Context) {
 	token := random.Token()
 	item := model.SettingItem{Key: conf.Token, Value: token, Type: conf.TypeString, Group: model.SINGLE, Flag: model.PRIVATE}

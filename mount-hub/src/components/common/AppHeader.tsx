@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ArrowUpDown, HardDrive, LogOut, Search, Shield, User } from 'lucide-react'
@@ -15,6 +16,8 @@ import {
 import { useAuth } from '@/lib/auth-context'
 import { cn } from '@/lib/utils'
 
+const TRANSFER_CREATED_EVENT = 'mounthub:transfer-created'
+
 interface AppHeaderProps {
   onSearchClick?: () => void
   onTransferClick?: () => void
@@ -23,10 +26,17 @@ interface AppHeaderProps {
 export function AppHeader({ onSearchClick, onTransferClick }: AppHeaderProps) {
   const pathname = usePathname()
   const { user, logout } = useAuth()
+  const [showTransferBadge, setShowTransferBadge] = useState(false)
   const navItems = [
     { href: '/files', label: '文件工作台' },
     ...(user?.isAdmin ? [{ href: '/admin', label: '管理中心' }] : []),
   ]
+
+  useEffect(() => {
+    const showBadge = () => setShowTransferBadge(true)
+    window.addEventListener(TRANSFER_CREATED_EVENT, showBadge)
+    return () => window.removeEventListener(TRANSFER_CREATED_EVENT, showBadge)
+  }, [])
 
   return (
     <header className="h-14 border-b border-border bg-card/80 backdrop-blur-xl sticky top-0 z-50">
@@ -61,9 +71,17 @@ export function AppHeader({ onSearchClick, onTransferClick }: AppHeaderProps) {
           <Button variant="ghost" size="icon" className="w-9 h-9 rounded-lg" onClick={onSearchClick}>
             <Search className="w-4.5 h-4.5 text-muted-foreground" />
           </Button>
-          <Button variant="ghost" size="icon" className="w-9 h-9 rounded-lg relative" onClick={onTransferClick}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-9 h-9 rounded-lg relative"
+            onClick={() => {
+              setShowTransferBadge(false)
+              onTransferClick?.()
+            }}
+          >
             <ArrowUpDown className="w-4.5 h-4.5 text-muted-foreground" />
-            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full" />
+            {showTransferBadge && <span className="absolute right-1 top-1 w-2 h-2 bg-primary rounded-full" />}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

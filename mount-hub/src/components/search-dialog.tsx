@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import { mockRecentSearches } from '@/lib/mock-data'
 
@@ -15,8 +16,14 @@ interface SearchDialogProps {
 
 export function SearchDialog({ isOpen, onClose }: SearchDialogProps) {
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
       <DialogContent className="sm:max-w-[540px] p-0 gap-0">
+        <DialogTitle className="sr-only">搜索文件和文件夹</DialogTitle>
         <div className="flex items-center gap-3 px-4 border-b border-border">
           <Search className="w-5 h-5 text-muted-foreground" />
           <Input

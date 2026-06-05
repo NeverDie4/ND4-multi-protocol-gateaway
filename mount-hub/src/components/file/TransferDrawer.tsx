@@ -1,26 +1,69 @@
 'use client'
 
-import { CheckCircle2, Cloud, Download, Pause, Play, Trash2, Upload } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CheckCircle2, Cloud, Download, Pause, Play, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { EmptyState } from '@/components/common/EmptyState'
-import { logMockAction } from '@/lib/api'
-import { formatFileSize, mockTransfers } from '@/lib/mock-data'
+import { fileApi } from '@/lib/api'
+import { formatFileSize } from '@/lib/mock-data'
 import type { TransferItem } from '@/types'
+
+const TRANSFERS_CHANGED_EVENT = 'mounthub:transfers-changed'
 
 interface TransferDrawerProps {
   isOpen: boolean
   onClose: () => void
 }
 
-function notify(action: string, item?: TransferItem) {
-  logMockAction(action, item)
-  toast.success(`${action}成功`)
+function useTransfers(polling = true) {
+  const [transfers, setTransfers] = useState<TransferItem[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const loadTransfers = useCallback(async () => {
+    setLoading(true)
+    try {
+      setTransfers(await fileApi.listTransfers())
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '加载传输任务失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadTransfers()
+    if (!polling) return
+    const timer = window.setInterval(() => void loadTransfers(), 3000)
+    return () => window.clearInterval(timer)
+  }, [loadTransfers, polling])
+
+  useEffect(() => {
+    const refresh = () => void loadTransfers()
+    window.addEventListener(TRANSFERS_CHANGED_EVENT, refresh)
+    window.addEventListener('storage', refresh)
+    return () => {
+      window.removeEventListener(TRANSFERS_CHANGED_EVENT, refresh)
+      window.removeEventListener('storage', refresh)
+    }
+  }, [loadTransfers])
+
+  return { transfers, loading, loadTransfers }
 }
 
-function TransferItemRow({ item }: { item: TransferItem }) {
+function TransferItemRow({ item, onChanged }: { item: TransferItem; onChanged: () => void }) {
+  const runAction = async (action: () => Promise<void>, message: string) => {
+    try {
+      await action()
+      toast.success(message)
+      onChanged()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '操作失败')
+    }
+  }
+
   return (
     <div className="p-3 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors">
       <div className="flex items-start gap-3">
@@ -29,21 +72,31 @@ function TransferItemRow({ item }: { item: TransferItem }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-1">
-            <p className="text-sm font-medium truncate">{item.name}</p>
+            <p className="text-sm font-medium truncate" title={item.name}>{item.name}</p>
             {item.status === 'completed' ? (
               <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
             ) : (
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="w-6 h-6" onClick={() => notify(item.status === 'transferring' ? '暂停传输' : '继续传输', item)}>
-                  {item.status === 'transferring' ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                </Button>
-                <Button variant="ghost" size="icon" className="w-6 h-6 text-muted-foreground hover:text-destructive" onClick={() => notify('删除传输任务', item)}>
+                {item.status === 'error' ? (
+                  <Button variant="ghost" size="icon" className="w-6 h-6" onClick={() => runAction(() => fileApi.retryTransfer(item.id), '已重试传输任务')}>
+                    <Play className="w-3 h-3" />
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="icon" className="w-6 h-6" onClick={() => runAction(() => fileApi.cancelTransfer(item.id), '已取消传输任务')}>
+                    <Pause className="w-3 h-3" />
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" className="w-6 h-6 text-muted-foreground hover:text-destructive" onClick={() => runAction(() => fileApi.deleteTransfer(item.id), '已删除传输任务')}>
                   <Trash2 className="w-3 h-3" />
                 </Button>
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground"><span>{formatFileSize(item.size)}</span><span>•</span><span>{item.progress}%</span></div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{formatFileSize(item.size)}</span>
+            <span>-</span>
+            <span>{Math.round(item.progress)}%</span>
+          </div>
           {item.status !== 'completed' && <Progress value={item.progress} className="h-1 mt-2" />}
         </div>
       </div>
@@ -52,24 +105,52 @@ function TransferItemRow({ item }: { item: TransferItem }) {
 }
 
 export function TransferDrawer({ isOpen, onClose }: TransferDrawerProps) {
-  const activeTransfers = mockTransfers.filter(t => t.status === 'transferring' || t.status === 'pending')
-  const completedTransfers = mockTransfers.filter(t => t.status === 'completed')
+  const { transfers, loading, loadTransfers } = useTransfers(isOpen)
+  const activeTransfers = transfers.filter((item) => item.status === 'transferring' || item.status === 'pending' || item.status === 'error')
+  const completedTransfers = transfers.filter((item) => item.status === 'completed')
+
+  const clearDone = async () => {
+    try {
+      await fileApi.clearDoneTransfers()
+      toast.success('已清除完成任务')
+      await loadTransfers()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '清除完成任务失败')
+    }
+  }
 
   return (
-    <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent className="w-[400px] sm:w-[450px]">
-        <SheetHeader className="pb-4">
-          <SheetTitle className="flex items-center justify-between">
-            <span>传输列表</span>
-            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => notify('清除已完成')}>
-              清除已完成
+    <Sheet open={isOpen} onOpenChange={(open) => {
+      if (!open) onClose()
+    }}>
+      <SheetContent className="w-[400px] sm:w-[450px] overflow-y-auto">
+        <SheetHeader className="pb-4 pr-10">
+          <SheetTitle>传输列表</SheetTitle>
+          <div className="mt-2 flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => void loadTransfers()} disabled={loading}>
+              <RefreshCw className="w-4 h-4 mr-1.5" />
+              刷新
             </Button>
-          </SheetTitle>
+            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => void clearDone()} disabled={completedTransfers.length === 0}>
+              清除完成
+            </Button>
+          </div>
         </SheetHeader>
         <div className="space-y-6">
-          {activeTransfers.length > 0 && <div><h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">正在传输 ({activeTransfers.length})</h4><div className="space-y-2">{activeTransfers.map(item => <TransferItemRow key={item.id} item={item} />)}</div></div>}
-          {completedTransfers.length > 0 && <div><h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">已完成 ({completedTransfers.length})</h4><div className="space-y-2">{completedTransfers.map(item => <TransferItemRow key={item.id} item={item} />)}</div></div>}
-          {mockTransfers.length === 0 && <EmptyState title="暂无传输任务" icon={<Upload className="w-8 h-8 text-muted-foreground/50" />} />}
+          {activeTransfers.length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">正在传输 ({activeTransfers.length})</h4>
+              <div className="space-y-2">{activeTransfers.map((item) => <TransferItemRow key={item.id} item={item} onChanged={() => void loadTransfers()} />)}</div>
+            </div>
+          )}
+          {completedTransfers.length > 0 && (
+            <div>
+              <h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">已完成 ({completedTransfers.length})</h4>
+              <div className="space-y-2">{completedTransfers.map((item) => <TransferItemRow key={item.id} item={item} onChanged={() => void loadTransfers()} />)}</div>
+            </div>
+          )}
+          {!loading && transfers.length === 0 && <EmptyState title="暂无传输任务" icon={<Upload className="w-8 h-8 text-muted-foreground/50" />} />}
+          {loading && transfers.length === 0 && <div className="py-10 text-center text-sm text-muted-foreground">正在加载传输任务...</div>}
         </div>
       </SheetContent>
     </Sheet>
@@ -77,14 +158,20 @@ export function TransferDrawer({ isOpen, onClose }: TransferDrawerProps) {
 }
 
 export function TransferBar({ onExpand }: { onExpand: () => void }) {
-  const uploadCount = mockTransfers.filter((item) => item.type === 'upload' && item.status === 'transferring').length
-  const downloadCount = mockTransfers.filter((item) => item.type === 'download' && item.status === 'transferring').length
+  const { transfers } = useTransfers(true)
+  const activeTransfers = transfers.filter((item) => item.status === 'transferring' || item.status === 'pending')
+  const uploadCount = activeTransfers.filter((item) => item.type === 'upload').length
+  const downloadCount = activeTransfers.filter((item) => item.type === 'download').length
+  const averageProgress = useMemo(() => {
+    if (activeTransfers.length === 0) return 0
+    return activeTransfers.reduce((total, item) => total + item.progress, 0) / activeTransfers.length
+  }, [activeTransfers])
 
   return (
     <button onClick={onExpand} className="h-10 border-t border-border bg-card px-4 flex items-center gap-4 w-full hover:bg-muted/50 transition-colors">
       <Cloud className="w-4 h-4 text-muted-foreground" />
-      <span className="text-sm text-muted-foreground">正在上传 {uploadCount} 个文件，下载 {downloadCount} 个文件</span>
-      <div className="flex-1 flex justify-center"><Progress value={45} className="h-1 w-24" /></div>
+      <span className="text-sm text-muted-foreground">正在传输：上传 {uploadCount} 个，下载 {downloadCount} 个</span>
+      <div className="flex-1 flex justify-center"><Progress value={averageProgress} className="h-1 w-24" /></div>
     </button>
   )
 }

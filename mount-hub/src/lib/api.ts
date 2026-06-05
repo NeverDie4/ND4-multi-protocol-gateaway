@@ -4,7 +4,6 @@ import {
   mockMountSpaces,
   mockProtocolPorts,
   mockStorageMounts,
-  mockTransfers,
   mockUsers,
 } from '@/lib/mock-data'
 import type {
@@ -33,6 +32,10 @@ const CLIENT_ID_KEY = 'mounthub.client_id'
 const STATIC_HASH_SALT = 'https://github.com/alist-org/alist'
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '') ?? ''
 const AUTH_EXPIRED_EVENT = 'mounthub:auth-expired'
+const TRANSFER_CREATED_EVENT = 'mounthub:transfer-created'
+const TRANSFERS_CHANGED_EVENT = 'mounthub:transfers-changed'
+const DOWNLOAD_TASKS_KEY = 'mounthub.download_tasks'
+const DOWNLOAD_TASK_PREFIX = 'download:'
 
 export class ApiError extends Error {
   code: number
@@ -116,11 +119,147 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
   skipAuthExpired?: boolean
 }
 
+interface BackendTaskInfo {
+  id: string
+  name: string
+  state: number
+  status: string
+  progress: number
+  total_bytes: number
+  error?: string
+}
+
+interface LocalDownloadTask extends TransferItem {
+  path: string
+  sign?: string
+  url: string
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
 function buildUrl(path: string) {
   if (/^https?:\/\//.test(path)) {
     return path
   }
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+function notifyTransfersChanged(created = false) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(TRANSFERS_CHANGED_EVENT))
+  if (created) {
+    window.dispatchEvent(new CustomEvent(TRANSFER_CREATED_EVENT))
+  }
+}
+
+function readDownloadTasks() {
+  const storage = getBrowserStorage()
+  if (!storage) return []
+  try {
+    return JSON.parse(storage.getItem(DOWNLOAD_TASKS_KEY) || '[]') as LocalDownloadTask[]
+  } catch {
+    return []
+  }
+}
+
+function writeDownloadTasks(tasks: LocalDownloadTask[]) {
+  const storage = getBrowserStorage()
+  if (!storage) return
+  storage.setItem(DOWNLOAD_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)))
+}
+
+function upsertDownloadTask(task: LocalDownloadTask) {
+  const tasks = readDownloadTasks().filter((item) => item.id !== task.id)
+  writeDownloadTasks([{ ...task, updatedAt: Date.now() }, ...tasks])
+  notifyTransfersChanged()
+}
+
+function updateDownloadTask(id: string, patch: Partial<LocalDownloadTask>) {
+  const tasks = readDownloadTasks()
+  const next = tasks.map((task) => (task.id === id ? { ...task, ...patch, updatedAt: Date.now() } : task))
+  writeDownloadTasks(next)
+  notifyTransfersChanged()
+}
+
+function removeDownloadTask(id: string) {
+  writeDownloadTasks(readDownloadTasks().filter((task) => task.id !== id))
+  notifyTransfersChanged()
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+const activeDownloadControllers = new Map<string, AbortController>()
+
+async function runDownloadTask(task: LocalDownloadTask) {
+  const controller = new AbortController()
+  activeDownloadControllers.set(task.id, controller)
+  updateDownloadTask(task.id, { status: 'transferring', progress: 0 })
+
+  try {
+    const response = await fetch(task.url, { signal: controller.signal })
+    if (!response.ok) {
+      throw new Error(response.statusText || '下载失败')
+    }
+
+    const total = Number(response.headers.get('content-length')) || task.size || 0
+    const reader = response.body?.getReader()
+    if (!reader) {
+      const blob = await response.blob()
+      saveBlob(blob, task.name)
+      updateDownloadTask(task.id, { status: 'completed', progress: 100, size: blob.size || total })
+      return
+    }
+
+    const chunks: Uint8Array[] = []
+    let received = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      chunks.push(value)
+      received += value.byteLength
+      const progress = total > 0 ? Math.min(99, (received / total) * 100) : task.progress
+      updateDownloadTask(task.id, { status: 'transferring', progress, size: total || received })
+    }
+
+    saveBlob(new Blob(chunks), task.name)
+    updateDownloadTask(task.id, { status: 'completed', progress: 100, size: total || received })
+  } catch (err) {
+    const message = err instanceof DOMException && err.name === 'AbortError' ? '下载已取消' : err instanceof Error ? err.message : '下载失败'
+    updateDownloadTask(task.id, { status: 'error', error: message })
+  } finally {
+    activeDownloadControllers.delete(task.id)
+  }
+}
+
+function isDownloadTaskId(id: string) {
+  return id.startsWith(DOWNLOAD_TASK_PREFIX)
+}
+
+function getDownloadTasksForList(): TransferItem[] {
+  const now = Date.now()
+  const tasks = readDownloadTasks().map((task) => {
+    const isStaleActiveTask =
+      (task.status === 'pending' || task.status === 'transferring') &&
+      !activeDownloadControllers.has(task.id) &&
+      now - task.updatedAt > 10000
+    if (isStaleActiveTask) {
+      return { ...task, status: 'error' as const, error: task.error || '下载已中断' }
+    }
+    return task
+  })
+  writeDownloadTasks(tasks)
+  return tasks.map(({ path: _path, sign: _sign, url: _url, error: _error, createdAt: _createdAt, updatedAt: _updatedAt, ...task }) => task)
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -188,15 +327,37 @@ export const authApi = {
   },
 }
 
+function toTransferItem(task: BackendTaskInfo): TransferItem {
+  const progress = Number.isFinite(task.progress) ? Math.max(0, Math.min(100, task.progress)) : 100
+  const lowerStatus = `${task.status} ${task.error ?? ''}`.toLowerCase()
+  const status: TransferItem['status'] =
+    task.error || lowerStatus.includes('error') || lowerStatus.includes('fail')
+      ? 'error'
+      : progress >= 100
+        ? 'completed'
+        : task.state === 0
+          ? 'pending'
+          : 'transferring'
+
+  return {
+    id: task.id,
+    name: task.name || task.id,
+    type: 'upload',
+    progress,
+    size: task.total_bytes || 0,
+    status,
+  }
+}
+
 export const fileApi = {
-  async list(path = '/'): Promise<FileListResult> {
+  async list(path = '/', refresh = false): Promise<FileListResult> {
     const result = await request<BackendFsListResponse>('/api/fs/list', {
       method: 'POST',
       body: {
         path,
         page: 1,
         per_page: 500,
-        refresh: false,
+        refresh,
       },
     })
 
@@ -244,6 +405,7 @@ export const fileApi = {
       method: 'PUT',
       headers: {
         'File-Path': encodeURI(filePath),
+        'As-Task': 'true',
         Overwrite: overwrite ? 'true' : 'false',
         'Last-Modified': String(file.lastModified),
       },
@@ -259,7 +421,70 @@ export const fileApi = {
   listMounts: (): ApiResult<MountSpace[]> => Promise.resolve(mockMountSpaces),
   listFolders: (): ApiResult<FolderNode[]> => Promise.resolve(mockFolderTree),
   listFiles: (): ApiResult<FileItem[]> => Promise.resolve(mockFiles),
-  listTransfers: (): ApiResult<TransferItem[]> => Promise.resolve(mockTransfers),
+  async listTransfers(): ApiResult<TransferItem[]> {
+    const [undone, done] = await Promise.all([
+      request<BackendTaskInfo[]>('/api/task/upload/undone'),
+      request<BackendTaskInfo[]>('/api/task/upload/done'),
+    ])
+    return [...undone, ...done].map(toTransferItem).concat(getDownloadTasksForList())
+  },
+
+  async startDownloadTransfer(path: string, name: string, sign?: string, size = 0) {
+    const id = `${DOWNLOAD_TASK_PREFIX}${crypto.randomUUID()}`
+    const task: LocalDownloadTask = {
+      id,
+      name,
+      type: 'download',
+      progress: 0,
+      size,
+      status: 'pending',
+      path,
+      sign,
+      url: this.downloadUrl(path, sign),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    upsertDownloadTask(task)
+    notifyTransfersChanged(true)
+    void runDownloadTask(task)
+    return task
+  },
+
+  cancelTransfer(id: string) {
+    if (isDownloadTaskId(id)) {
+      activeDownloadControllers.get(id)?.abort()
+      updateDownloadTask(id, { status: 'error', error: '下载已取消' })
+      return Promise.resolve()
+    }
+    return request<void>(`/api/task/upload/cancel?tid=${encodeURIComponent(id)}`, { method: 'POST' })
+  },
+
+  deleteTransfer(id: string) {
+    if (isDownloadTaskId(id)) {
+      activeDownloadControllers.get(id)?.abort()
+      removeDownloadTask(id)
+      return Promise.resolve()
+    }
+    return request<void>(`/api/task/upload/delete?tid=${encodeURIComponent(id)}`, { method: 'POST' })
+  },
+
+  retryTransfer(id: string) {
+    if (isDownloadTaskId(id)) {
+      const task = readDownloadTasks().find((item) => item.id === id)
+      if (!task) return Promise.reject(new Error('下载任务不存在'))
+      const next = { ...task, status: 'pending' as const, progress: 0, error: undefined, updatedAt: Date.now() }
+      upsertDownloadTask(next)
+      void runDownloadTask(next)
+      return Promise.resolve()
+    }
+    return request<void>(`/api/task/upload/retry?tid=${encodeURIComponent(id)}`, { method: 'POST' })
+  },
+
+  async clearDoneTransfers() {
+    writeDownloadTasks(readDownloadTasks().filter((task) => task.status !== 'completed'))
+    notifyTransfersChanged()
+    await request<void>('/api/task/upload/clear_done', { method: 'POST' })
+  },
 }
 
 export const adminApi = {

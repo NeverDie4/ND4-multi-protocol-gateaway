@@ -16,13 +16,13 @@ interface MountSidebarProps {
 
 export function MountSidebar({ currentPath, directories, provider, onNavigate, onAddMount }: MountSidebarProps) {
   return (
-    <aside className="w-56 border-r border-border bg-card flex flex-col">
+    <aside className="w-56 h-full min-h-0 overflow-hidden border-r border-border bg-card flex flex-col">
       <div className="px-4 py-3 border-b border-border">
         <h2 className="text-sm font-semibold">文件工作台</h2>
         <p className="text-xs text-muted-foreground">{provider}</p>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0 overflow-hidden">
         <div className="p-3">
           <div className="flex items-center justify-between mb-2 px-1">
             <h3 className="text-xs font-medium text-muted-foreground">挂载入口</h3>

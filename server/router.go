@@ -171,6 +171,7 @@ func admin(g *gin.RouterGroup) {
 	setting := g.Group("/setting")
 	setting.GET("/get", handles.GetSetting)
 	setting.GET("/list", handles.ListSettings)
+	setting.GET("/protocol_ports", handles.ProtocolPorts)
 	setting.POST("/save", handles.SaveSettings)
 	setting.POST("/delete", handles.DeleteSetting)
 	setting.POST("/reset_token", handles.ResetToken)

@@ -28,6 +28,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [totpCode, setTotpCode] = useState('')
+  const [showTotp, setShowTotp] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -47,7 +48,13 @@ export default function LoginPage() {
       await login(username, password, totpCode || undefined)
       router.push('/files')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败，请检查账号和密码')
+      const message = err instanceof Error ? err.message : '登录失败，请检查账号和密码'
+      if (/Invalid 2FA code/i.test(message)) {
+        setShowTotp(true)
+        setError('该账号已启用 2FA，请输入验证码')
+      } else {
+        setError(message)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -137,7 +144,6 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-sm font-medium">
                   密码
@@ -168,7 +174,7 @@ export default function LoginPage() {
                   </Button>
                 </div>
               </div>
-
+              {showTotp ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="totp" className="text-sm font-medium">
@@ -191,6 +197,16 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-auto px-0 text-sm text-muted-foreground hover:bg-transparent hover:text-foreground"
+                  onClick={() => setShowTotp(true)}
+                >
+                  使用 2FA 验证码
+                </Button>
+              )}
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 

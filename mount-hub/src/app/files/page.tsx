@@ -8,7 +8,7 @@ import { FileDetailDrawer } from '@/components/file/FileDetailDrawer'
 import { FileTable } from '@/components/file/FileTable'
 import { FileToolbar } from '@/components/file/FileToolbar'
 import { MountSidebar } from '@/components/file/MountSidebar'
-import { TransferBar } from '@/components/file/TransferDrawer'
+import { TransferBar, TransferDrawer } from '@/components/file/TransferDrawer'
 import { ApiError, fileApi } from '@/lib/api'
 import type { FileItem } from '@/types'
 
@@ -58,10 +58,10 @@ export default function FilesPage() {
   const directories = useMemo(() => files.filter((file) => file.type === 'folder'), [files])
   const breadcrumbPath = useMemo(() => breadcrumb(currentPath), [currentPath])
 
-  const loadFiles = async (path = currentPath) => {
+  const loadFiles = async (path = currentPath, forceRefresh = false) => {
     setLoading(true)
     try {
-      const result = await fileApi.list(path)
+      const result = await fileApi.list(path, forceRefresh)
       setFiles(result.files)
       setProvider(result.provider)
       setWritable(result.writable)
@@ -111,10 +111,10 @@ export default function FilesPage() {
     if (!file.path || file.type !== 'file') return
     try {
       const detail = await fileApi.get(file.path)
-      const url = detail.raw_url || fileApi.downloadUrl(file.path, detail.sign)
-      window.open(url, '_blank', 'noopener,noreferrer')
+      await fileApi.startDownloadTransfer(file.path, file.name, detail.sign, file.size ?? detail.size ?? 0)
+      toast.success('下载任务已创建')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '获取下载地址失败')
+      toast.error(err instanceof Error ? err.message : '创建下载任务失败')
     }
   }
 
@@ -163,7 +163,8 @@ export default function FilesPage() {
       for (const file of selected) {
         await fileApi.upload(currentPath, file)
       }
-      toast.success('上传完成')
+      window.dispatchEvent(new CustomEvent('mounthub:transfer-created'))
+      toast.success('上传任务已创建')
       await loadFiles()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '上传失败')
@@ -171,7 +172,7 @@ export default function FilesPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="flex h-[calc(100vh-3.5rem)] min-h-0 overflow-hidden">
       <MountSidebar
         currentPath={currentPath}
         directories={directories}
@@ -180,14 +181,14 @@ export default function FilesPage() {
         onAddMount={() => setIsAddMountOpen(true)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-background">
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-background">
         <FileToolbar
           breadcrumbPath={breadcrumbPath}
           viewMode={viewMode}
           writable={writable}
           onNavigate={(path) => void loadFiles(path)}
           onViewModeChange={setViewMode}
-          onRefresh={() => void loadFiles()}
+          onRefresh={() => void loadFiles(currentPath, true)}
           onCreateFolder={handleCreateFolder}
           onUpload={() => fileInputRef.current?.click()}
         />
@@ -203,6 +204,7 @@ export default function FilesPage() {
           ) : (
             <FileTable
               files={files}
+              viewMode={viewMode}
               selectedFileId={selectedFileId}
               loading={loading}
               onSelect={setSelectedFileId}
@@ -232,7 +234,7 @@ export default function FilesPage() {
         onClose={() => setIsAddMountOpen(false)}
         onCreated={() => void loadFiles('/')}
       />
-      {isTransferOpen && <span className="sr-only">传输抽屉入口已触发</span>}
+      <TransferDrawer isOpen={isTransferOpen} onClose={() => setIsTransferOpen(false)} />
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         title="删除文件"
