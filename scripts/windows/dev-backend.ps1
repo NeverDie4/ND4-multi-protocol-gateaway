@@ -5,11 +5,11 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
-Write-Host "==> Starting Go backend (go run --dev)..."
+Write-Host "==> Starting Go backend (go run --debug)..."
 $Job = Start-Job -ScriptBlock {
   param($Root)
   Set-Location $Root
-  & go run . server --dev
+  & go run . server --debug
 } -ArgumentList $ProjectRoot
 
 Write-Host "Backend running at http://127.0.0.1:5244"

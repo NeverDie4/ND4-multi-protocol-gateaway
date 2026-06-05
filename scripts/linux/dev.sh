@@ -34,8 +34,8 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 if $run_backend; then
-  echo "==> Starting Go backend (go run --dev)..."
-  go run . server --dev &
+  echo "==> Starting Go backend (go run --debug)..."
+  go run . server --debug &
   BACKEND_PID=$!
 fi
 

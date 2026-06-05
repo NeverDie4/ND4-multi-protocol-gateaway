@@ -27,11 +27,11 @@ if (-not $RunBackend -and -not $RunFrontend) {
 $Jobs = @()
 
 if ($RunBackend) {
-  Write-Host "==> Starting Go backend (go run --dev)..."
+  Write-Host "==> Starting Go backend (go run --debug)..."
   $Job = Start-Job -ScriptBlock {
     param($Root)
     Set-Location $Root
-    & go run . server --dev
+    & go run . server --debug
   } -ArgumentList $ProjectRoot
   $Jobs += $Job
 }
