@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Cloud, Download, Pause, Play, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -21,34 +21,56 @@ interface TransferDrawerProps {
 function useTransfers(polling = true) {
   const [transfers, setTransfers] = useState<TransferItem[]>([])
   const [loading, setLoading] = useState(false)
+  const requestSeqRef = useRef(0)
+
+  const showLocalTransfers = useCallback(() => {
+    const localTransfers = fileApi.listLocalTransfers()
+    if (localTransfers.length === 0) return
+    setTransfers((current) => {
+      const byId = new Map(current.map((item) => [item.id, item]))
+      for (const item of localTransfers) {
+        byId.set(item.id, item)
+      }
+      return Array.from(byId.values())
+    })
+  }, [])
 
   const loadTransfers = useCallback(async () => {
+    const requestSeq = ++requestSeqRef.current
     setLoading(true)
     try {
-      setTransfers(await fileApi.listTransfers())
+      const next = await fileApi.listTransfers()
+      if (requestSeq === requestSeqRef.current) {
+        setTransfers(next)
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '加载传输任务失败')
     } finally {
-      setLoading(false)
+      if (requestSeq === requestSeqRef.current) {
+        setLoading(false)
+      }
     }
   }, [])
 
   useEffect(() => {
     void loadTransfers()
     if (!polling) return
-    const timer = window.setInterval(() => void loadTransfers(), 3000)
+    const timer = window.setInterval(() => void loadTransfers(), 1000)
     return () => window.clearInterval(timer)
   }, [loadTransfers, polling])
 
   useEffect(() => {
-    const refresh = () => void loadTransfers()
+    const refresh = () => {
+      showLocalTransfers()
+      void loadTransfers()
+    }
     window.addEventListener(TRANSFERS_CHANGED_EVENT, refresh)
     window.addEventListener('storage', refresh)
     return () => {
       window.removeEventListener(TRANSFERS_CHANGED_EVENT, refresh)
       window.removeEventListener('storage', refresh)
     }
-  }, [loadTransfers])
+  }, [loadTransfers, showLocalTransfers])
 
   return { transfers, loading, loadTransfers }
 }
@@ -140,13 +162,13 @@ export function TransferDrawer({ isOpen, onClose }: TransferDrawerProps) {
           {activeTransfers.length > 0 && (
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">正在传输 ({activeTransfers.length})</h4>
-              <div className="space-y-2">{activeTransfers.map((item) => <TransferItemRow key={item.id} item={item} onChanged={() => void loadTransfers()} />)}</div>
+              <div className="space-y-2">{activeTransfers.map((item) => <TransferItemRow key={`active-${item.type}-${item.id}-${item.status}`} item={item} onChanged={() => void loadTransfers()} />)}</div>
             </div>
           )}
           {completedTransfers.length > 0 && (
             <div>
               <h4 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">已完成 ({completedTransfers.length})</h4>
-              <div className="space-y-2">{completedTransfers.map((item) => <TransferItemRow key={item.id} item={item} onChanged={() => void loadTransfers()} />)}</div>
+              <div className="space-y-2">{completedTransfers.map((item) => <TransferItemRow key={`completed-${item.type}-${item.id}-${item.status}`} item={item} onChanged={() => void loadTransfers()} />)}</div>
             </div>
           )}
           {!loading && transfers.length === 0 && <EmptyState title="暂无传输任务" icon={<Upload className="w-8 h-8 text-muted-foreground/50" />} />}

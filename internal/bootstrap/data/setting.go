@@ -104,7 +104,7 @@ func InitialSettings() []model.SettingItem {
 		{Key: conf.AllowIndexed, Value: "false", Type: conf.TypeBool, Group: model.SITE},
 		{Key: conf.AllowMounted, Value: "true", Type: conf.TypeBool, Group: model.SITE},
 		{Key: conf.RobotsTxt, Value: "User-agent: *\nAllow: /", Type: conf.TypeText, Group: model.SITE},
-		{Key: conf.AllowRegister, Value: "false", Type: conf.TypeBool, Group: model.SITE},
+		{Key: conf.AllowRegister, Value: "true", PreDefault: "false", Type: conf.TypeBool, Group: model.SITE},
 		{Key: conf.DefaultRole, Value: defaultRoleID, Type: conf.TypeSelect, Group: model.SITE},
 		// newui settings
 		{Key: conf.UseNewui, Value: "false", Type: conf.TypeBool, Group: model.SITE},

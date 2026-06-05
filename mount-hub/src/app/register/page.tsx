@@ -7,32 +7,30 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  Fingerprint,
-  Grid3X3,
   HardDrive,
   KeyRound,
-  Link2,
   Shield,
   User,
+  UserPlus,
   Zap,
 } from 'lucide-react'
 import Link from 'next/link'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/lib/auth-context'
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter()
-  const { isAuthenticated, isReady, login } = useAuth()
+  const { isAuthenticated, isReady, register } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [totpCode, setTotpCode] = useState('')
-  const [showTotp, setShowTotp] = useState(false)
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
 
   useEffect(() => {
     if (isReady && isAuthenticated) {
@@ -42,23 +40,60 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
     setError('')
 
+    if (!username.trim()) {
+      setError('请输入用户名')
+      return
+    }
+
+    if (!password) {
+      setError('请输入密码')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('密码长度至少 6 位')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('两次输入的密码不一致')
+      return
+    }
+
+    setIsLoading(true)
     try {
-      await login(username.trim(), password, totpCode || undefined)
-      router.push('/files')
+      await register(username.trim(), password)
+      setSuccess(true)
     } catch (err) {
-      const message = err instanceof Error ? err.message : '登录失败，请检查账号和密码'
-      if (/Invalid 2FA code/i.test(message)) {
-        setShowTotp(true)
-        setError('该账号已启用 2FA，请输入验证码')
-      } else {
-        setError(message)
-      }
+      const message = err instanceof Error ? err.message : '注册失败，请稍后重试'
+      setError(message)
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (success) {
+    return (
+      <div className="min-h-screen flex">
+        <BrandPanel />
+
+        <div className="flex-1 flex items-center justify-center p-6 bg-card">
+          <div className="w-full max-w-md text-center">
+            <div className="w-20 h-20 mx-auto rounded-2xl bg-green-100 flex items-center justify-center mb-6">
+              <CheckCircle2 className="w-10 h-10 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-semibold text-foreground">注册成功</h2>
+            <p className="text-muted-foreground mt-2">账号已经创建，现在可以登录使用。</p>
+            <Button className="w-full h-12 text-base font-medium mt-8" onClick={() => router.push('/login')}>
+              返回登录
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -76,8 +111,11 @@ export default function LoginPage() {
 
           <div className="bg-card lg:bg-background rounded-2xl lg:p-8 lg:shadow-lg lg:border lg:border-border/50">
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-semibold text-foreground">欢迎回来</h2>
-              <p className="text-muted-foreground mt-2">登录后访问统一文件工作台</p>
+              <div className="w-14 h-14 mx-auto rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <UserPlus className="w-7 h-7 text-primary" />
+              </div>
+              <h2 className="text-2xl font-semibold text-foreground">创建账号</h2>
+              <p className="text-muted-foreground mt-2">填写信息完成注册</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -90,7 +128,7 @@ export default function LoginPage() {
                   <Input
                     id="username"
                     type="text"
-                    placeholder="admin"
+                    placeholder="请输入用户名"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="h-12 pl-10 bg-background border-border"
@@ -110,11 +148,11 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="请输入密码"
+                    placeholder="请输入密码（至少 6 位）"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="h-12 pl-10 pr-10 bg-background border-border"
-                    autoComplete="current-password"
+                    autoComplete="new-password"
                     disabled={isLoading}
                     required
                   />
@@ -136,77 +174,55 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {showTotp ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="totp" className="text-sm font-medium">
-                      2FA 验证码
-                    </Label>
-                    <Badge variant="secondary" className="text-xs font-normal py-0 px-1.5">
-                      可选
-                    </Badge>
-                  </div>
-                  <div className="relative">
-                    <Grid3X3 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="totp"
-                      type="text"
-                      placeholder="000000"
-                      value={totpCode}
-                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      className="h-12 pl-10 bg-background border-border tracking-widest"
-                      autoComplete="one-time-code"
-                      disabled={isLoading}
-                      maxLength={6}
-                    />
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-sm font-medium">
+                  确认密码
+                </Label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="再次输入密码"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="h-12 pl-10 pr-10 bg-background border-border"
+                    autoComplete="new-password"
+                    disabled={isLoading}
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 hover:bg-transparent"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    disabled={isLoading}
+                    aria-label={showConfirmPassword ? '隐藏确认密码' : '显示确认密码'}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </Button>
                 </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-auto px-0 text-sm text-muted-foreground hover:bg-transparent hover:text-foreground"
-                  onClick={() => setShowTotp(true)}
-                  disabled={isLoading}
-                >
-                  使用 2FA 验证码
-                </Button>
-              )}
+              </div>
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
               <Button type="submit" className="w-full h-12 text-base font-medium mt-6" disabled={isLoading}>
-                {isLoading ? '登录中...' : '登录'}
-                {!isLoading && <ArrowRight className="w-4 h-4 ml-2" />}
+                {isLoading ? '注册中...' : '创建账号'}
+                {!isLoading && <UserPlus className="w-4 h-4 ml-2" />}
               </Button>
             </form>
 
             <p className="text-center text-sm text-muted-foreground mt-4">
-              还没有账号？{' '}
-              <Link href="/register" className="text-primary hover:underline font-medium">
-                立即注册
+              已有账号？{' '}
+              <Link href="/login" className="text-primary hover:underline font-medium">
+                立即登录
               </Link>
             </p>
-
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-background lg:bg-card px-3 text-muted-foreground">其他登录方式</span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Button variant="outline" className="w-full h-11 font-normal" type="button" disabled>
-                <Fingerprint className="w-4 h-4 mr-2" />
-                WebAuthn / 通行密钥
-              </Button>
-              <Button variant="outline" className="w-full h-11 font-normal" type="button" disabled>
-                <Link2 className="w-4 h-4 mr-2" />
-                企业 SSO
-              </Button>
-            </div>
           </div>
         </div>
       </div>
@@ -261,7 +277,7 @@ function BrandPanel() {
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <CheckCircle2 className="w-4 h-4 text-green-500" />
-        <span>后端服务连接后即可进入工作台</span>
+        <span>注册后即可使用新账号登录</span>
       </div>
     </div>
   )

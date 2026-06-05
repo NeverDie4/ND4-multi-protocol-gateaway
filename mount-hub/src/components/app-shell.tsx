@@ -13,17 +13,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isReady } = useAuth()
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isTransferOpen, setIsTransferOpen] = useState(false)
+  const publicPaths = ['/login', '/register']
+  const isPublicPath = publicPaths.includes(pathname)
 
   useEffect(() => {
-    if (isReady && !isAuthenticated && pathname !== '/login') {
+    if (isReady && !isAuthenticated && !isPublicPath) {
       router.push('/login')
     }
     if (isReady && isAuthenticated && (pathname === '/admin' || pathname.startsWith('/admin/')) && !user?.isAdmin) {
       router.replace('/files')
     }
-  }, [isAuthenticated, isReady, pathname, router, user?.isAdmin])
+  }, [isAuthenticated, isPublicPath, isReady, pathname, router, user?.isAdmin])
 
-  if (pathname === '/login') {
+  if (isPublicPath) {
     return <>{children}</>
   }
 

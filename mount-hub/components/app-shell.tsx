@@ -16,13 +16,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // 路由保护
   useEffect(() => {
-    if (!isAuthenticated && pathname !== '/login') {
+    const publicPaths = ['/login', '/register']
+    if (!isAuthenticated && !publicPaths.includes(pathname)) {
       router.push('/login')
     }
   }, [isAuthenticated, pathname, router])
 
-  // 登录页不显示导航栏
-  if (pathname === '/login') {
+  // 登录页和注册页不显示导航栏
+  if (pathname === '/login' || pathname === '/register') {
     return <>{children}</>
   }
 
