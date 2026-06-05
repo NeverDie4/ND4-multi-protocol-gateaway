@@ -10,6 +10,7 @@ interface AuthContextType {
   isReady: boolean
   login: (username: string, password: string, otpCode?: string) => Promise<boolean>
   logout: () => Promise<void>
+  register: (username: string, password: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -87,6 +88,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } finally {
           clearSession()
         }
+      },
+      async register(username, password) {
+        await authApi.register(username, password)
       },
     }),
     [isReady, user],

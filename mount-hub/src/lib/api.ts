@@ -35,7 +35,9 @@ const AUTH_EXPIRED_EVENT = 'mounthub:auth-expired'
 const TRANSFER_CREATED_EVENT = 'mounthub:transfer-created'
 const TRANSFERS_CHANGED_EVENT = 'mounthub:transfers-changed'
 const DOWNLOAD_TASKS_KEY = 'mounthub.download_tasks'
+const UPLOAD_TASKS_KEY = 'mounthub.upload_tasks'
 const DOWNLOAD_TASK_PREFIX = 'download:'
+const UPLOAD_TASK_PREFIX = 'upload:'
 
 export class ApiError extends Error {
   code: number
@@ -138,6 +140,24 @@ interface LocalDownloadTask extends TransferItem {
   updatedAt: number
 }
 
+interface LocalUploadTask extends TransferItem {
+  dir: string
+  path: string
+  error?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface BackendSettingItem {
+  key: string
+  value: string
+  type?: string
+  options?: string
+  group?: number
+  flag?: number
+  index?: number
+}
+
 function buildUrl(path: string) {
   if (/^https?:\/\//.test(path)) {
     return path
@@ -163,16 +183,38 @@ function readDownloadTasks() {
   }
 }
 
+function readUploadTasks() {
+  const storage = getBrowserStorage()
+  if (!storage) return []
+  try {
+    return JSON.parse(storage.getItem(UPLOAD_TASKS_KEY) || '[]') as LocalUploadTask[]
+  } catch {
+    return []
+  }
+}
+
 function writeDownloadTasks(tasks: LocalDownloadTask[]) {
   const storage = getBrowserStorage()
   if (!storage) return
   storage.setItem(DOWNLOAD_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)))
 }
 
-function upsertDownloadTask(task: LocalDownloadTask) {
+function writeUploadTasks(tasks: LocalUploadTask[]) {
+  const storage = getBrowserStorage()
+  if (!storage) return
+  storage.setItem(UPLOAD_TASKS_KEY, JSON.stringify(tasks.slice(0, 100)))
+}
+
+function upsertDownloadTask(task: LocalDownloadTask, created = false) {
   const tasks = readDownloadTasks().filter((item) => item.id !== task.id)
   writeDownloadTasks([{ ...task, updatedAt: Date.now() }, ...tasks])
-  notifyTransfersChanged()
+  notifyTransfersChanged(created)
+}
+
+function upsertUploadTask(task: LocalUploadTask, created = false) {
+  const tasks = readUploadTasks().filter((item) => item.id !== task.id)
+  writeUploadTasks([{ ...task, updatedAt: Date.now() }, ...tasks])
+  notifyTransfersChanged(created)
 }
 
 function updateDownloadTask(id: string, patch: Partial<LocalDownloadTask>) {
@@ -182,8 +224,20 @@ function updateDownloadTask(id: string, patch: Partial<LocalDownloadTask>) {
   notifyTransfersChanged()
 }
 
+function updateUploadTask(id: string, patch: Partial<LocalUploadTask>) {
+  const tasks = readUploadTasks()
+  const next = tasks.map((task) => (task.id === id ? { ...task, ...patch, updatedAt: Date.now() } : task))
+  writeUploadTasks(next)
+  notifyTransfersChanged()
+}
+
 function removeDownloadTask(id: string) {
   writeDownloadTasks(readDownloadTasks().filter((task) => task.id !== id))
+  notifyTransfersChanged()
+}
+
+function removeUploadTask(id: string) {
+  writeUploadTasks(readUploadTasks().filter((task) => task.id !== id))
   notifyTransfersChanged()
 }
 
@@ -199,6 +253,7 @@ function saveBlob(blob: Blob, filename: string) {
 }
 
 const activeDownloadControllers = new Map<string, AbortController>()
+const activeUploadRequests = new Map<string, XMLHttpRequest>()
 
 async function runDownloadTask(task: LocalDownloadTask) {
   const controller = new AbortController()
@@ -246,6 +301,10 @@ function isDownloadTaskId(id: string) {
   return id.startsWith(DOWNLOAD_TASK_PREFIX)
 }
 
+function isUploadTaskId(id: string) {
+  return id.startsWith(UPLOAD_TASK_PREFIX)
+}
+
 function getDownloadTasksForList(): TransferItem[] {
   const now = Date.now()
   const tasks = readDownloadTasks().map((task) => {
@@ -260,6 +319,26 @@ function getDownloadTasksForList(): TransferItem[] {
   })
   writeDownloadTasks(tasks)
   return tasks.map(({ path: _path, sign: _sign, url: _url, error: _error, createdAt: _createdAt, updatedAt: _updatedAt, ...task }) => task)
+}
+
+function getUploadTasksForList(): TransferItem[] {
+  const now = Date.now()
+  const tasks = readUploadTasks().map((task) => {
+    const isStaleActiveTask =
+      (task.status === 'pending' || task.status === 'transferring') &&
+      !activeUploadRequests.has(task.id) &&
+      now - task.updatedAt > 30000
+    if (isStaleActiveTask) {
+      return { ...task, status: 'error' as const, error: task.error || '上传已中断' }
+    }
+    return task
+  })
+  writeUploadTasks(tasks)
+  return tasks.map(({ dir: _dir, path: _path, error: _error, createdAt: _createdAt, updatedAt: _updatedAt, ...task }) => task)
+}
+
+function getLocalTransferTasksForList() {
+  return getUploadTasksForList().concat(getDownloadTasksForList())
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -318,6 +397,17 @@ export const authApi = {
     })
   },
 
+  register(username: string, password: string) {
+    return request<void>('/api/auth/register', {
+      method: 'POST',
+      skipAuthExpired: true,
+      body: {
+        username,
+        password,
+      },
+    })
+  },
+
   currentUser() {
     return request<BackendUser>('/api/me', { skipAuthExpired: true })
   },
@@ -346,6 +436,27 @@ function toTransferItem(task: BackendTaskInfo): TransferItem {
     progress,
     size: task.total_bytes || 0,
     status,
+  }
+}
+
+function mergeTransferItems(items: TransferItem[]) {
+  const byId = new Map<string, TransferItem>()
+  for (const item of items) {
+    const existing = byId.get(item.id)
+    if (!existing || existing.status === 'completed') {
+      byId.set(item.id, item)
+    }
+  }
+  return Array.from(byId.values())
+}
+
+async function requestWithTimeout<T>(path: string, timeoutMs: number) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await request<T>(path, { signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -397,19 +508,80 @@ export const fileApi = {
     })
   },
 
-  async upload(dir: string, file: File, overwrite = true) {
+  upload(dir: string, file: File, overwrite = true) {
     const form = new FormData()
     form.set('file', file)
     const filePath = joinPath(dir, file.name)
-    return request<void>('/api/fs/form', {
-      method: 'PUT',
-      headers: {
-        'File-Path': encodeURI(filePath),
-        'As-Task': 'true',
-        Overwrite: overwrite ? 'true' : 'false',
-        'Last-Modified': String(file.lastModified),
-      },
-      body: form,
+    const id = `${UPLOAD_TASK_PREFIX}${crypto.randomUUID()}`
+    const task: LocalUploadTask = {
+      id,
+      name: file.name,
+      type: 'upload',
+      progress: 0,
+      size: file.size,
+      status: 'pending',
+      dir,
+      path: filePath,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    upsertUploadTask(task, true)
+
+    return new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      activeUploadRequests.set(id, xhr)
+      xhr.open('PUT', buildUrl('/api/fs/form'))
+      const token = getToken()
+      const clientId = getClientId()
+      if (token) xhr.setRequestHeader('Authorization', token)
+      if (clientId) xhr.setRequestHeader('Client-Id', clientId)
+      xhr.setRequestHeader('File-Path', encodeURI(filePath))
+      xhr.setRequestHeader('As-Task', 'true')
+      xhr.setRequestHeader('Overwrite', overwrite ? 'true' : 'false')
+      xhr.setRequestHeader('Last-Modified', String(file.lastModified))
+
+      xhr.upload.onloadstart = () => {
+        updateUploadTask(id, { status: 'transferring', progress: 0 })
+      }
+      xhr.upload.onprogress = (event) => {
+        const total = event.lengthComputable ? event.total : file.size
+        const progress = total > 0 ? Math.min(99, (event.loaded / total) * 100) : task.progress
+        updateUploadTask(id, { status: 'transferring', progress, size: total || file.size })
+      }
+      xhr.onload = () => {
+        try {
+          const contentType = xhr.getResponseHeader('content-type') ?? ''
+          if (contentType.includes('application/json') && xhr.responseText) {
+            const envelope = JSON.parse(xhr.responseText) as ApiEnvelope<unknown>
+            if (envelope.code !== 200) {
+              throw new ApiError(envelope.message || '上传失败', envelope.code, envelope.data)
+            }
+          } else if (xhr.status < 200 || xhr.status >= 300) {
+            throw new ApiError(xhr.statusText || '上传失败', xhr.status)
+          }
+          updateUploadTask(id, { status: 'completed', progress: 100 })
+          activeUploadRequests.delete(id)
+          resolve()
+        } catch (err) {
+          const message = err instanceof Error ? err.message : '上传失败'
+          updateUploadTask(id, { status: 'error', error: message })
+          activeUploadRequests.delete(id)
+          reject(err)
+        }
+      }
+      xhr.onerror = () => {
+        const err = new Error('上传失败')
+        updateUploadTask(id, { status: 'error', error: err.message })
+        activeUploadRequests.delete(id)
+        reject(err)
+      }
+      xhr.onabort = () => {
+        const err = new Error('上传已取消')
+        updateUploadTask(id, { status: 'error', error: err.message })
+        activeUploadRequests.delete(id)
+        reject(err)
+      }
+      xhr.send(form)
     })
   },
 
@@ -421,12 +593,21 @@ export const fileApi = {
   listMounts: (): ApiResult<MountSpace[]> => Promise.resolve(mockMountSpaces),
   listFolders: (): ApiResult<FolderNode[]> => Promise.resolve(mockFolderTree),
   listFiles: (): ApiResult<FileItem[]> => Promise.resolve(mockFiles),
+  listLocalTransfers() {
+    return getLocalTransferTasksForList()
+  },
+
   async listTransfers(): ApiResult<TransferItem[]> {
-    const [undone, done] = await Promise.all([
-      request<BackendTaskInfo[]>('/api/task/upload/undone'),
-      request<BackendTaskInfo[]>('/api/task/upload/done'),
-    ])
-    return [...undone, ...done].map(toTransferItem).concat(getDownloadTasksForList())
+    const localTasks = getLocalTransferTasksForList()
+    try {
+      const [undone, done] = await Promise.all([
+        requestWithTimeout<BackendTaskInfo[]>('/api/task/upload/undone', 800),
+        requestWithTimeout<BackendTaskInfo[]>('/api/task/upload/done', 800),
+      ])
+      return mergeTransferItems([...undone, ...done].map(toTransferItem).concat(localTasks))
+    } catch {
+      return localTasks
+    }
   },
 
   async startDownloadTransfer(path: string, name: string, sign?: string, size = 0) {
@@ -444,13 +625,38 @@ export const fileApi = {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    upsertDownloadTask(task)
-    notifyTransfersChanged(true)
-    void runDownloadTask(task)
+    upsertDownloadTask(task, true)
+    void (async () => {
+      try {
+        if (sign) {
+          await runDownloadTask(task)
+          return
+        }
+        const detail = await this.get(path)
+        const signedTask = {
+          ...task,
+          sign: detail.sign,
+          url: this.downloadUrl(path, detail.sign),
+          size: size || detail.size || 0,
+        }
+        upsertDownloadTask(signedTask)
+        await runDownloadTask(signedTask)
+      } catch (err) {
+        updateDownloadTask(id, {
+          status: 'error',
+          error: err instanceof Error ? err.message : '创建下载任务失败',
+        })
+      }
+    })()
     return task
   },
 
   cancelTransfer(id: string) {
+    if (isUploadTaskId(id)) {
+      activeUploadRequests.get(id)?.abort()
+      updateUploadTask(id, { status: 'error', error: '上传已取消' })
+      return Promise.resolve()
+    }
     if (isDownloadTaskId(id)) {
       activeDownloadControllers.get(id)?.abort()
       updateDownloadTask(id, { status: 'error', error: '下载已取消' })
@@ -460,6 +666,11 @@ export const fileApi = {
   },
 
   deleteTransfer(id: string) {
+    if (isUploadTaskId(id)) {
+      activeUploadRequests.get(id)?.abort()
+      removeUploadTask(id)
+      return Promise.resolve()
+    }
     if (isDownloadTaskId(id)) {
       activeDownloadControllers.get(id)?.abort()
       removeDownloadTask(id)
@@ -469,6 +680,9 @@ export const fileApi = {
   },
 
   retryTransfer(id: string) {
+    if (isUploadTaskId(id)) {
+      return Promise.reject(new Error('请重新选择文件上传'))
+    }
     if (isDownloadTaskId(id)) {
       const task = readDownloadTasks().find((item) => item.id === id)
       if (!task) return Promise.reject(new Error('下载任务不存在'))
@@ -482,6 +696,7 @@ export const fileApi = {
 
   async clearDoneTransfers() {
     writeDownloadTasks(readDownloadTasks().filter((task) => task.status !== 'completed'))
+    writeUploadTasks(readUploadTasks().filter((task) => task.status !== 'completed'))
     notifyTransfersChanged()
     await request<void>('/api/task/upload/clear_done', { method: 'POST' })
   },
@@ -561,6 +776,17 @@ export const adminApi = {
 
   listDriverNames() {
     return request<string[]>('/api/admin/driver/names')
+  },
+
+  getSettings(keys: string[]) {
+    return request<BackendSettingItem[]>(`/api/admin/setting/get?keys=${encodeURIComponent(keys.join(','))}`)
+  },
+
+  saveSettings(items: Pick<BackendSettingItem, 'key' | 'value'>[]) {
+    return request<void>('/api/admin/setting/save', {
+      method: 'POST',
+      body: items,
+    })
   },
 
   listStorageMounts: (): ApiResult<StorageMount[]> => Promise.resolve(mockStorageMounts),

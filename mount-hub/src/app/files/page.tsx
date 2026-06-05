@@ -110,8 +110,7 @@ export default function FilesPage() {
   const handleDownload = async (file: FileItem) => {
     if (!file.path || file.type !== 'file') return
     try {
-      const detail = await fileApi.get(file.path)
-      await fileApi.startDownloadTransfer(file.path, file.name, detail.sign, file.size ?? detail.size ?? 0)
+      await fileApi.startDownloadTransfer(file.path, file.name, undefined, file.size ?? 0)
       toast.success('下载任务已创建')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '创建下载任务失败')
@@ -159,16 +158,15 @@ export default function FilesPage() {
     const selected = Array.from(event.target.files ?? [])
     event.target.value = ''
     if (selected.length === 0) return
-    try {
-      for (const file of selected) {
-        await fileApi.upload(currentPath, file)
+    const uploadPath = currentPath
+    toast.success('上传任务已创建')
+    void Promise.allSettled(selected.map((file) => fileApi.upload(uploadPath, file))).then(async (results) => {
+      const failed = results.filter((result) => result.status === 'rejected')
+      if (failed.length > 0) {
+        toast.error(`${failed.length} 个文件上传失败`)
       }
-      window.dispatchEvent(new CustomEvent('mounthub:transfer-created'))
-      toast.success('上传任务已创建')
-      await loadFiles()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '上传失败')
-    }
+      await loadFiles(uploadPath, true)
+    })
   }
 
   return (

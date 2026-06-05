@@ -22,13 +22,14 @@ import (
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"
+	"gorm.io/gorm"
 )
 
 var loginCache = cache.NewMemCache[int]()
 var (
 	defaultDuration            = time.Minute * 5
 	defaultTimes               = 5
-	invalidLoginCredentialsMsg = "username or password is incorrect"
+	invalidLoginCredentialsMsg = "用户名或密码错误"
 )
 
 type LoginReq struct {
@@ -120,6 +121,32 @@ type RegisterReq struct {
 	Password string `json:"password" binding:"required"`
 }
 
+func getRegisterRoleID() (int, error) {
+	roleID := op.GetDefaultRoleID()
+	if roleID != model.GUEST {
+		return roleID, nil
+	}
+	role, err := op.GetRoleByName("general")
+	if err == nil {
+		return int(role.ID), nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, err
+	}
+	role = &model.Role{
+		ID:          uint(model.NEWGENERAL),
+		Name:        "general",
+		Description: "General User",
+		PermissionScopes: []model.PermissionEntry{
+			{Path: "/", Permission: 0xFFFF},
+		},
+	}
+	if err := op.CreateRole(role); err != nil {
+		return 0, err
+	}
+	return int(role.ID), nil
+}
+
 // Register a new user
 func Register(c *gin.Context) {
 	if !setting.GetBool(conf.AllowRegister) {
@@ -131,9 +158,14 @@ func Register(c *gin.Context) {
 		common.ErrorResp(c, err, 400)
 		return
 	}
+	roleID, err := getRegisterRoleID()
+	if err != nil {
+		common.ErrorResp(c, err, 500, true)
+		return
+	}
 	user := &model.User{
 		Username: req.Username,
-		Role:     model.Roles{op.GetDefaultRoleID()},
+		Role:     model.Roles{roleID},
 		Authn:    "[]",
 	}
 	user.SetPassword(req.Password)
